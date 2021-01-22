@@ -20,18 +20,25 @@ use strict;
 use open ":std", ":encoding(UTF-8)";
 
 use JSON::Parse 'json_file_to_perl';
-use Data::Dumper;
+
+use DateTime::Format::ISO8601;
+use DateTime::Duration;
 
 use Getopt::Long;
 
-# Usage: ./gen_release_notes.pl <version> to generate release notes
-# for an existing release
+# Usage: ./gen_release_notes.pl <repo> <version> to generate release
+# notes for an existing release.
 #
-# ./gen_release_notes.pl to generate release notes for a new release
-# (everything since the last release)
+# ./gen_release_notes.pl <repo> to generate release notes for a new
+# release (everything since the last release).
 # 
-# Example: ./gen_release_notes.pl v0.22.9
-
+# Example: ./gen_release_notes.pl dolthub/dolt v0.22.9
+# 
+# Use --dependency or -d to list additional dependencies to include in
+# release notes
+#
+# Example: ./gen_release_notes.pl -d dolthub/go-mysql-server -d dolthub/vitess dolthub/dolt v0.22.9
+# 
 # GitHub API rate limits unauthed access to 60 requests an
 # hour. Running this to generate release notes for a single release
 # shouldn't normally hit this limit. If it does, you'll need to use a
@@ -42,7 +49,7 @@ use Getopt::Long;
 my $token = "";
 my @dependencies;
 GetOptions (
-    "dependencies|d=s" => \@dependencies,
+    "dependency|d=s" => \@dependencies,
     "token|t=s" => \$token,
 ) or die "Error in command line args";
 
@@ -92,10 +99,10 @@ $to_time = "" unless $release_tag;
 print STDERR "Looking for PRs and issues from $from_time to $to_time\n";
 
 my $pull_requests_url = "https://api.github.com/repos/$repo/pulls";
-my $merged_prs = get_prs($pull_requests_url, $from_time, $to_time);
+my $merged_prs = get_prs($pull_requests_url, fuzz_time($from_time, -5), fuzz_time($to_time, 5));
 
 my $issues_url = "https://api.github.com/repos/$repo/issues";
-my $closed_issues = get_issues($issues_url, $from_time, $to_time);
+my $closed_issues = get_issues($issues_url, fuzz_time($from_time, -5), fuzz_time($to_time, 5));
 
 foreach my $dep (@dependencies) {
     my $from_dep_hash = get_dependency_version($dep, $from_hash);
@@ -112,9 +119,9 @@ foreach my $dep (@dependencies) {
 
     print STDERR "Looking for pulls in $dep from $from_dep_time to $to_dep_time\n";
     my $dep_pulls_urls = "https://api.github.com/repos/$dep/pulls";
-    my $merged_dep_prs = get_prs($dep_pulls_urls, $from_dep_time, $to_dep_time);
+    my $merged_dep_prs = get_prs($dep_pulls_urls, fuzz_time($from_dep_time, -5), fuzz_time($to_dep_time, 5));
     my $dep_issues_url = "https://api.github.com/repos/$dep/issues";
-    my $closed_dep_issues = get_issues($dep_issues_url, $from_dep_time, $to_dep_time);
+    my $closed_dep_issues = get_issues($dep_issues_url, fuzz_time($from_dep_time, -5), fuzz_time($to_dep_time, 5));
 
     push @$merged_prs, @$merged_dep_prs;
     push @$closed_issues, @$closed_dep_issues;
@@ -157,6 +164,8 @@ sub get_prs {
     my $from_time = shift;
     my $to_time = shift;
 
+    print STDERR "Looking for merged PRs between $from_time to $to_time\n";
+
     $base_url .= '?state=closed&sort=created&direction=desc&per_page=100';
     
     my $page = 1;
@@ -177,7 +186,7 @@ sub get_prs {
             $more = 1;
             next unless $pull->{merged_at};
 
-            print STDERR "PR merged at $pull->{merged_at}\n";
+            #print STDERR "PR merged at $pull->{merged_at}\n";
             return \@merged_prs if $pull->{created_at} lt $from_time;
             my %pr = (
                 'url' => $pull->{html_url},
@@ -219,6 +228,8 @@ sub get_issues {
     my $from_time = shift;
     my $to_time = shift;
 
+    print STDERR "Looking for issues closed between $from_time to $to_time\n";
+    
     $base_url .= "?state=closed&sort=created&direction=desc&since=$from_time&per_page=100";
     
     my $page = 1;
@@ -313,4 +324,15 @@ sub checkout_repo {
     }
 
     chdir $dir;
+}
+
+# Adds a given number of seconds to the time string given and returns it.
+sub fuzz_time {
+    my $t = shift;
+    my $s = shift;
+
+    my $date = DateTime::Format::ISO8601->parse_datetime($t);
+    my $delta = $date->add(DateTime::Duration->new(seconds => $s));
+
+    return "${delta}Z";
 }
