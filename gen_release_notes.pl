@@ -38,19 +38,27 @@ use Getopt::Long;
 # personal access token with the --token flag. Details for how to
 # create a token:
 # https://docs.github.com/en/free-pro-team@latest/github/authenticating-to-github/creating-a-personal-access-token
-my $token = "";
-GetOptions ("token|t=s" => \$token) or die "Error in command line args";
 
+my $token = "";
+my @dependencies;
+GetOptions (
+    "dependencies|d=s" => \@dependencies,
+    "token|t=s" => \$token,
+) or die "Error in command line args";
+
+my $repo = shift @ARGV;
 # no arg for changes since last release
 my $release_tag = shift @ARGV;
+
+die "Must provide github repo" unless $repo;
 
 print STDERR "Looking for changes for release $release_tag\n" if $release_tag;
 
 my $tmp_dir = "/var/tmp";
 my $curl_file = "$tmp_dir/curl-$$.out";
 
-my $dolt_releases_url = 'https://api.github.com/repos/dolthub/dolt/releases?per_page=100';
-my $curl_releases = curl_cmd($dolt_releases_url, $token);
+my $releases_url = "https://api.github.com/repos/$repo/releases?per_page=100";
+my $curl_releases = curl_cmd($releases_url, $token);
 
 print STDERR "$curl_releases\n";
 system($curl_releases) and die $!;
@@ -72,6 +80,8 @@ foreach my $release (@$releases_json) {
 
 die "Couldn't find release" unless $to_time;
 
+checkout_repo($repo);
+
 $from_hash = tag_to_commit_hash($from_tag);
 $to_hash = tag_to_commit_hash($to_tag);
 
@@ -81,28 +91,33 @@ $to_time = "" unless $release_tag;
 
 print STDERR "Looking for PRs and issues from $from_time to $to_time\n";
 
-my $dolt_pull_requests_url = 'https://api.github.com/repos/dolthub/dolt/pulls';
-my $merged_prs = get_prs($dolt_pull_requests_url, $from_time, $to_time);
+my $pull_requests_url = "https://api.github.com/repos/$repo/pulls";
+my $merged_prs = get_prs($pull_requests_url, $from_time, $to_time);
 
-my $dolt_issues_url = "https://api.github.com/repos/dolthub/dolt/issues";
-my $closed_issues = get_issues($dolt_issues_url, $from_time, $to_time);
+my $issues_url = "https://api.github.com/repos/$repo/issues";
+my $closed_issues = get_issues($issues_url, $from_time, $to_time);
 
-my $from_gms_hash = get_dependency_version("go-mysql-server", $from_hash);
-my $to_gms_hash = get_dependency_version("go-mysql-server", $to_hash);
+foreach my $dep (@dependencies) {
+    my $from_dep_hash = get_dependency_version($dep, $from_hash);
+    my $to_dep_hash = get_dependency_version($dep, $to_hash);
 
-if ($from_gms_hash ne $to_gms_hash) {
-    print STDERR "Looking for commit times in go-mysql-server from $from_gms_hash to $to_gms_hash\n";
-    my $from_gms_time = get_commit_time("dolthub/go-mysql-server", $from_gms_hash);
-    my $to_gms_time = get_commit_time("dolthub/go-mysql-server", $to_gms_hash);
+    if ($from_dep_hash eq $to_dep_hash) {
+        print STDERR "Skipping $dep, version $from_dep_hash has not changed\n";
+        next;
+    }
+    
+    print STDERR "Looking for commit times in $dep from $from_dep_hash to $to_dep_hash\n";
+    my $from_dep_time = get_commit_time($dep, $from_dep_hash);
+    my $to_dep_time = get_commit_time($dep, $to_dep_hash);
 
-    print STDERR "Looking for pulls in go-mysql-server from $from_gms_time to $to_gms_time\n";
-    my $gms_pulls_urls = 'https://api.github.com/repos/dolthub/go-mysql-server/pulls';
-    my $merged_gms_prs = get_prs($gms_pulls_urls, $from_gms_time, $to_gms_time);
-    my $gms_issues_url = "https://api.github.com/repos/dolthub/go-mysql-server/issues";
-    my $closed_gms_issues = get_issues($gms_issues_url, $from_gms_time, $to_gms_time);
+    print STDERR "Looking for pulls in $dep from $from_dep_time to $to_dep_time\n";
+    my $dep_pulls_urls = "https://api.github.com/repos/$dep/pulls";
+    my $merged_dep_prs = get_prs($dep_pulls_urls, $from_dep_time, $to_dep_time);
+    my $dep_issues_url = "https://api.github.com/repos/$dep/issues";
+    my $closed_dep_issues = get_issues($dep_issues_url, $from_dep_time, $to_dep_time);
 
-    push @$merged_prs, @$merged_gms_prs;
-    push @$closed_issues, @$closed_gms_issues;
+    push @$merged_prs, @$merged_dep_prs;
+    push @$closed_issues, @$closed_dep_issues;
 }
 
 print "# Merged PRs\n\n";
@@ -161,6 +176,8 @@ sub get_prs {
         foreach my $pull (@$pulls_json) {
             $more = 1;
             next unless $pull->{merged_at};
+
+            print STDERR "PR merged at $pull->{merged_at}\n";
             return \@merged_prs if $pull->{created_at} lt $from_time;
             my %pr = (
                 'url' => $pull->{html_url},
@@ -169,7 +186,6 @@ sub get_prs {
                 'body' => $pull->{body},
                 );
 
-            # print STDERR "PR merged at $pull->{merged_at}\n";
             push (@merged_prs, \%pr) if !$to_time || $pull->{merged_at} le $to_time;
         }
 
@@ -260,7 +276,7 @@ sub get_commit_time {
         #          "author": {
         #              "name": "Daylon Wilkins",
         #              "email": "daylon@liquidata.co",
-        #              "date": "2020-12-21_t14:33:08_z"
+        #              "date": "2020-12-21T14:33:08Z"
         #          },
         return $commit->{commit}{author}{date};
     }
@@ -268,14 +284,33 @@ sub get_commit_time {
     die "Couldn't find commit time";
 }
 
+# translates the tag given to a commit hash for the current git repo
 sub tag_to_commit_hash {
     my $tag = shift;
 
-    my $line = `git rev-list -n 1 $tag`;
+    my $cmd = "git rev-list -n 1 $tag";
+    print STDERR "$cmd\n";
+    my $line = `$cmd` or die $!;
     
     if ($line =~ m/([0-9a-f]+)/) {
         return $1;
     }
 
     die "Couldn't determine dependency commit hash for tag $tag";
+}
+
+# Clones the repo given if necessary and changes the working directory to it.
+sub checkout_repo {
+    my $repo = shift;
+
+    die "couldn't determine dir name" unless $repo =~ m|.+/(.+)|;
+
+    my $dir = $1;
+    if (!-e $dir) {
+        my $cmd = "git clone git\@github.com:$repo.git";
+        print STDERR "$cmd\n";
+        system($cmd) and die $!;
+    }
+
+    chdir $dir;
 }
