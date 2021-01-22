@@ -25,9 +25,9 @@ the output it produces.
 
 # Usage
 
-The tool will clone the repo given unless a repository with the same
+The tool will clone the repo given unless a directory with the same
 name exists in the working directory. Therefore, if you intend to
-genereate release notes for a project you already have checked out
+generate release notes for a project you already have checked out
 locally, it's recommended that you clone this repo alongside the one
 you want to generate release notes for. E.g.:
 
@@ -43,8 +43,9 @@ you want to generate release notes for. E.g.:
 ```
 
 Since `dolt` exists in the current working directory, the tool will
-assume that's the repository you're generating release notes for. It
-should be up to date with the GitHub remote.
+assume that's the repository `dolthub/dolt` and not bother cloning
+it. It should be up to date with the GitHub remote or tag resolution
+may fail.
 
 # Requirements
 
