@@ -46,6 +46,8 @@ use Getopt::Long;
 # create a token:
 # https://docs.github.com/en/free-pro-team@latest/github/authenticating-to-github/creating-a-personal-access-token
 
+my $skip_marker = qr/\[no-release-notes\]/;
+
 my $token = "";
 my @dependencies;
 GetOptions (
@@ -185,6 +187,7 @@ sub get_prs {
         foreach my $pull (@$pulls_json) {
             $more = 1;
             next unless $pull->{merged_at};
+            next if $pull->{title} =~ m/$skip_marker/;
 
             #print STDERR "PR merged at $pull->{merged_at}\n";
             return \@merged_prs if $pull->{created_at} lt $from_time;
@@ -251,6 +254,7 @@ sub get_issues {
             next unless $issue->{closed_at};
             return \@closed_issues if $issue->{created_at} lt $from_time;
             next if $issue->{html_url} =~ m|/pull/|; # the issues API also returns PR results
+            next if $issue->{title} =~ m/$skip_marker/;
             my %i = (
                 'url' => $issue->{html_url},
                 'number' => $issue->{number},
