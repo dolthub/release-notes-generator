@@ -23,6 +23,20 @@ and [dolthub/vitess](https://github.com/dolthub/vitess) that were
 built into this release. The end of this README contains an example of
 the output it produces.
 
+# Pre-requisites
+
+This script requires several CPAN modules. Run `install-deps.sh` to
+install them. Depending on your perl installation, you may need to run
+this with `sudo`.
+
+Alternately, install them yourself with `cpan`:
+
+```
+cpan> install DateTime::Format::ISO8601
+cpan> install Getopt::Long
+cpan> install JSON::Parse
+```
+
 # Usage
 
 The tool will clone the repo given unless a directory with the same
