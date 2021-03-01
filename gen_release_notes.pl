@@ -55,11 +55,16 @@ GetOptions (
     "token|t=s" => \$token,
 ) or die "Error in command line args";
 
+foreach my $dep (@dependencies) {
+    die "invalid repo name: must be qualified with org name, e.g. dolthub/dolt" unless $dep =~ m|[a-zA-Z0-9_]/|;
+}
+
 my $repo = shift @ARGV;
+die "Must provide github repo" unless $repo;
+die "invalid repo name: must be qualified with org name, e.g. dolthub/dolt" unless $repo =~ m|[a-zA-Z0-9_]/|;
+
 # no arg for changes since last release
 my $release_tag = shift @ARGV;
-
-die "Must provide github repo" unless $repo;
 
 print STDERR "Looking for changes for release $release_tag\n" if $release_tag;
 
@@ -73,6 +78,7 @@ print STDERR "$curl_releases\n";
 system($curl_releases) and die $!;
 
 my $releases_json = json_file_to_perl($curl_file);
+die "JSON file does not contain a list response" unless ref($releases_json) eq 'ARRAY';
 
 my ($from_time, $from_tag, $from_hash, $to_time, $to_tag, $to_hash);
 foreach my $release (@$releases_json) {
