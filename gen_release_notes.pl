@@ -222,10 +222,20 @@ sub get_dependency_version {
     print STDERR "$cmd\n";
     my $line = `$cmd`;
 
-    # TODO: this only works for commit versions, not actual releases like most software uses
     # github.com/dolthub/go-mysql-server v0.6.1-0.20210107193823-566f0ba75abc
     if ($line =~ m/\S+\s+.*-([0-9a-f]{12})/) {
         return $1;
+    }
+
+    # github.com/dolthub/go-mysql-server v0.9.0
+    if ($line =~ m/\S+\s+(v\d+\.\d+\.\d+)/) {
+        my $tag = $1;
+        chdir '..';
+        checkout_repo($dependency);
+        my $commit = tag_to_commit_hash($tag);
+        chdir '..';
+        checkout_repo($repo);
+        return $commit;
     }
 
     die "Couldn't determine dependency version in $line";
