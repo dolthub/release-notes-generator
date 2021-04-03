@@ -218,7 +218,11 @@ sub get_dependency_version {
     my $dependency = shift;
     my $hash = shift;
 
-    my $cmd = "git show $hash:go/go.mod | grep $dependency";
+    # Look for the go.mod file in a few likely places (not always in the project root)
+    my $go_mod = "go.mod";
+    $go_mod = "go/go.mod" unless -e $go_mod;
+    
+    my $cmd = "git show $hash:$go_mod | grep $dependency";
     print STDERR "$cmd\n";
     my $line = `$cmd`;
 
@@ -230,6 +234,8 @@ sub get_dependency_version {
     # github.com/dolthub/go-mysql-server v0.9.0
     if ($line =~ m/\S+\s+(v\d+\.\d+\.\d+)/) {
         my $tag = $1;
+        # the chdir juggling here is not ideal, but we need to leave
+        # the working dir unchanged after this logic runs
         chdir '..';
         checkout_repo($dependency);
         my $commit = tag_to_commit_hash($tag);
