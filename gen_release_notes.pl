@@ -140,9 +140,12 @@ my @sorted_deps = nsort keys %merged_prs_dict;
 
 print "# Merged PRs\n\n";
 foreach my $dep (@sorted_deps) {
+    my $dep_arr = $merged_prs_dict{$dep};
+    next unless $dep_arr;
+
     my $repo_name = format_repo_name($dep);
     print "## $repo_name\n\n";
-    my $dep_arr = $merged_prs_dict{$dep};
+
     foreach my $pr (@$dep_arr) {
         print "* [$pr->{number}]($pr->{url}): $pr->{title}\n";
         if ($pr->{body}) {
