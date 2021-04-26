@@ -25,6 +25,7 @@ use DateTime::Format::ISO8601;
 use DateTime::Duration;
 
 use Getopt::Long;
+use Sort::Naturally;
 
 # Usage: ./gen_release_notes.pl <repo> <version> to generate release
 # notes for an existing release.
@@ -107,7 +108,7 @@ $to_time = "" unless $release_tag;
 print STDERR "Looking for PRs and issues from $from_time to $to_time\n";
 
 my $pull_requests_url = "https://api.github.com/repos/$repo/pulls";
-my $merged_prs = get_prs($pull_requests_url, fuzz_time($from_time, -5), fuzz_time($to_time, 5));
+my %merged_prs_dict = ($repo => get_prs($pull_requests_url, fuzz_time($from_time, -5), fuzz_time($to_time, 5)));
 
 my $issues_url = "https://api.github.com/repos/$repo/issues";
 my $closed_issues = get_issues($issues_url, fuzz_time($from_time, -5), fuzz_time($to_time, 5));
@@ -131,20 +132,30 @@ foreach my $dep (@dependencies) {
     my $dep_issues_url = "https://api.github.com/repos/$dep/issues";
     my $closed_dep_issues = get_issues($dep_issues_url, fuzz_time($from_dep_time, -5), fuzz_time($to_dep_time, 5));
 
-    push @$merged_prs, @$merged_dep_prs;
+    $merged_prs_dict{$dep} = $merged_dep_prs;
     push @$closed_issues, @$closed_dep_issues;
 }
 
-print "# Merged PRs\n\n";
-foreach my $pr (@$merged_prs) {
-    print "* [$pr->{number}]($pr->{url}): $pr->{title}\n";
+my @sorted_deps = nsort keys %merged_prs_dict;
 
-    if ($pr->{body}) {
-        my @lines = split (/\s*[\n\r]+\s*/, $pr->{body});
-        foreach my $line (@lines) {
-            print "  $line\n";
+print "# Merged PRs\n\n";
+foreach my $dep (@sorted_deps) {
+    my $dep_arr = $merged_prs_dict{$dep};
+    next unless $dep_arr;
+
+    my $repo_name = format_repo_name($dep);
+    print "## $repo_name\n\n";
+
+    foreach my $pr (@$dep_arr) {
+        print "* [$pr->{number}]($pr->{url}): $pr->{title}\n";
+        if ($pr->{body}) {
+            my @lines = split (/\s*[\n\r]+\s*/, $pr->{body});
+            foreach my $line (@lines) {
+                print "  $line\n";
+            }
         }
     }
+    print "\n";
 }
 
 print "\n# Closed Issues\n\n";
@@ -361,4 +372,15 @@ sub fuzz_time {
     my $delta = $date->add(DateTime::Duration->new(seconds => $s));
 
     return "${delta}Z";
+}
+
+# Returns the repository name without the organization name.
+sub format_repo_name {
+    my $orgRepo = shift;
+    my @spl = split('/', $orgRepo);
+    my $length = scalar @spl;
+    if ($length == 2) {
+      return "$spl[1]"
+    }
+    return "$spl[0]";
 }
