@@ -183,9 +183,11 @@ sub get_prs {
     my $from_time = shift;
     my $to_time = shift;
 
+    my $search_cutoff = fuzz_time($from_time, -60 * 60 * 24 * 60);
+
     print STDERR "Looking for merged PRs between $from_time to $to_time\n";
 
-    $base_url .= '?state=closed&sort=created&direction=desc&per_page=100';
+    $base_url .= '?state=closed&sort=updated&direction=desc&per_page=100';
     
     my $page = 1;
     my $more = 0;
@@ -200,14 +202,27 @@ sub get_prs {
         $more = 0;
         my $pulls_json = json_file_to_perl($curl_file);
         die "JSON file does not contain a list response" unless ref($pulls_json) eq 'ARRAY';
-        
+
+        # The way this search works is pretty dumb: the API returns
+        # results in descending order of update time, but update time
+        # includes things like comments after a merge, deleting the
+        # branch, etc. It doesn't tell us merge time. There's no way
+        # to order the API results by merge time. So in order to be
+        # sure we actually get all the PRs merged in the window, we
+        # have to look further back in time. We choose 60 days.
         foreach my $pull (@$pulls_json) {
             $more = 1;
+
             next unless $pull->{merged_at};
+            next unless $pull->{merged_at} ge $from_time;
+            print STDERR "PR $pull->{number} merged at $pull->{merged_at}\n";
             next if $pull->{title} =~ m/$skip_marker/;
 
-            #print STDERR "PR merged at $pull->{merged_at}\n";
-            return \@merged_prs if $pull->{created_at} lt $from_time;
+            if ($pull->{updated_at} lt $search_cutoff) {
+                $more = 0;
+                last;
+            }
+            
             my %pr = (
                 'url' => $pull->{html_url},
                 'number' => $pull->{number},
@@ -220,6 +235,9 @@ sub get_prs {
 
         $page++;
     } while $more;
+
+    # we sorted by update time, but want to return the list sorted by PR number
+    @merged_prs = sort {$b->{number} <=> $a->{number}} @merged_prs;
     
     return \@merged_prs;
 }
@@ -266,7 +284,7 @@ sub get_issues {
 
     print STDERR "Looking for issues closed between $from_time to $to_time\n";
     
-    $base_url .= "?state=closed&sort=created&direction=desc&since=$from_time&per_page=100";
+    $base_url .= "?state=closed&sort=updated&direction=desc&since=$from_time&per_page=100";
     
     my $page = 1;
     my $more = 0;
@@ -285,9 +303,14 @@ sub get_issues {
         foreach my $issue (@$issues_json) {
             $more = 1;
             next unless $issue->{closed_at};
-            return \@closed_issues if $issue->{created_at} lt $from_time;
             next if $issue->{html_url} =~ m|/pull/|; # the issues API also returns PR results
             next if $issue->{title} =~ m/$skip_marker/;
+            
+            if ($issue->{updated_at} lt $from_time) {
+                $more = 0;
+                last;
+            }
+
             my %i = (
                 'url' => $issue->{html_url},
                 'number' => $issue->{number},
@@ -295,7 +318,7 @@ sub get_issues {
                 'body' => $issue->{body},
                 );
             
-            push (@closed_issues, \%i) if !$to_time || $issue->{closed_at} le $to_time; 
+            push (@closed_issues, \%i) if !$to_time || $issue->{closed_at} le $to_time;
         }
 
         $page++;
