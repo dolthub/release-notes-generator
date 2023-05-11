@@ -154,6 +154,7 @@ foreach my $dep (@sorted_deps) {
             foreach my $line (@lines) {
                 print "  $line\n";
             }
+            print "..." if length($pr->{body}) > 400;
         }
     }
     print "\n";
