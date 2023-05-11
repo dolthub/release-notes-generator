@@ -149,7 +149,8 @@ foreach my $dep (@sorted_deps) {
     foreach my $pr (@$dep_arr) {
         print "* [$pr->{number}]($pr->{url}): $pr->{title}\n";
         if ($pr->{body}) {
-            my @lines = split (/\s*[\n\r]+\s*/, $pr->{body});
+            # For brevity only consider first 400 characters of the PR description
+            my @lines = split (/\s*[\n\r]+\s*/, substr($pr->{body}, 0, 400));
             foreach my $line (@lines) {
                 print "  $line\n";
             }
