@@ -217,6 +217,7 @@ sub get_prs {
             next unless $pull->{merged_at} ge $from_time;
             print STDERR "PR $pull->{number} merged at $pull->{merged_at}\n";
             next if $pull->{title} =~ m/$skip_marker/;
+            next if $pull->{user} && $pull->{user}->{login} =~ m/^dependabot/;
 
             if ($pull->{updated_at} lt $search_cutoff) {
                 $more = 0;
@@ -305,6 +306,7 @@ sub get_issues {
             next unless $issue->{closed_at};
             next if $issue->{html_url} =~ m|/pull/|; # the issues API also returns PR results
             next if $issue->{title} =~ m/$skip_marker/;
+            next if $issue->{user} && $issue->{user}->{login} =~ m/^dependabot/;
             
             if ($issue->{updated_at} lt $from_time) {
                 $more = 0;
